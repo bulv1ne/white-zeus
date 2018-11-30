@@ -1,0 +1,8 @@
+#!/bin/sh
+
+set -eux
+
+pipenv run isort --check-only --diff --quiet
+pipenv run black --check --exclude node_modules .
+pipenv run flake8
+
