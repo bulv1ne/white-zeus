@@ -102,10 +102,27 @@ async def send_file(reader, writer):
 
 
 def partial_find(chunk, until):
+    """Finds `until` in chunk and splits after `until`.
+    If until is partially found at the end of the chunk,
+    it will split right before the partially found string
+
+    This function is used to consume as much of chunk as possible while
+    still able to append to chunk
+    """
+    try:
+        pos = chunk.index(until)
+    except ValueError:
+        pass
+    else:
+        pos += len(until)
+        return chunk[:pos], chunk[pos:]
+
     len_chunk = len(chunk)
     len_until = len(until)
+
     for chunk_pos, until_pos in zip(
-        range(max(0, len_chunk - len_until), len_chunk), range(len_until, 0, -1)
+        range(max(0, len_chunk - len_until), len_chunk),
+        range(min(len_until, len_chunk), 0, -1),
     ):
         if chunk[chunk_pos:] == until[:until_pos]:
             return chunk[:chunk_pos], chunk[chunk_pos:]
