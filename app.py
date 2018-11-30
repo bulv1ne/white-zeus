@@ -117,17 +117,15 @@ def partial_find(chunk, until):
         pos += len(until)
         return chunk[:pos], chunk[pos:]
 
-    len_chunk = len(chunk)
-    len_until = len(until)
+    chunk_len = len(chunk)
+    until_len = len(until)
+    chunk_range = range(max(0, chunk_len - until_len), chunk_len)
+    until_range = range(min(until_len, chunk_len), 0, -1)
 
-    for chunk_pos, until_pos in zip(
-        range(max(0, len_chunk - len_until), len_chunk),
-        range(min(len_until, len_chunk), 0, -1),
-    ):
+    for chunk_pos, until_pos in zip(chunk_range, until_range):
         if chunk[chunk_pos:] == until[:until_pos]:
             return chunk[:chunk_pos], chunk[chunk_pos:]
-    else:
-        return chunk, b""
+    return chunk, b""
 
 
 if __name__ == "__main__":
