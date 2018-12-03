@@ -42,8 +42,7 @@ async def proxy(reader, writer):
             remote_writer.write_eof()
         remote_writer.close()
 
-    await writer.wait_closed()
-    await writer.wait_closed()
+    await asyncio.gather(writer.wait_closed(), writer.wait_closed())
 
 
 async def read_head(reader, writer, replace_host=None):
