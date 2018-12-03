@@ -1,7 +1,8 @@
 import asyncio
 import logging
+from urllib.parse import urlparse
 
-HOST = "example.com"
+URL = "https://example.com"
 BUFFER_SIZE = 1024
 
 
@@ -16,10 +17,18 @@ async def main():
 
 
 async def proxy(reader, writer):
-    remote_reader, remote_writer = await asyncio.open_connection(HOST, 80)
+    u = urlparse(URL)
+    hostname = u.hostname
+    port = u.port or (443 if u.scheme == "https" else 80)
+    ssl = u.scheme == "https"
+    replace_host = f"{hostname}:{u.port}" if u.port else hostname
+
+    remote_reader, remote_writer = await asyncio.open_connection(
+        hostname, port, ssl=ssl
+    )
 
     await asyncio.gather(
-        read_head(reader, remote_writer, replace_host=HOST),
+        read_head(reader, remote_writer, replace_host=replace_host),
         send_file(remote_reader, writer),
     )
 
