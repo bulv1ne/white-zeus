@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 HOST = "example.com"
+BUFFER_SIZE = 1024
 
 
 async def main():
@@ -68,7 +69,7 @@ class Pipeline:
                     self.writer.write(data_stream)
                     await self.writer.drain()
 
-                data = await self.reader.read(128)
+                data = await self.reader.read(BUFFER_SIZE)
                 self.chunk += data
             else:
                 pos += len(until)
@@ -82,7 +83,7 @@ class Pipeline:
             try:
                 pos = self.chunk.index(until)
             except ValueError:
-                data = await self.reader.read(128)
+                data = await self.reader.read(BUFFER_SIZE)
                 self.chunk += data
             else:
                 pos += len(until)
@@ -94,7 +95,7 @@ class Pipeline:
 async def send_file(reader, writer):
     try:
         while not reader.at_eof() and not writer.is_closing():
-            data = await reader.read(128)
+            data = await reader.read(BUFFER_SIZE)
             writer.write(data)
             await writer.drain()
     except ConnectionResetError:
