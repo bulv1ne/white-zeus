@@ -3,7 +3,7 @@ import asyncio
 import logging
 from urllib.parse import urlparse
 
-URL = "https://example.com"
+URL = "http://127.0.0.1:8080"
 BUFFER_SIZE = 1024
 
 
@@ -27,9 +27,10 @@ async def proxy(reader, writer):
     hostname = u.hostname
     port = u.port or (443 if u.scheme == "https" else 80)
     ssl = u.scheme == "https"
-    replace_host = f"{hostname}:{u.port}" if u.port else hostname
+    # replace_host = f"{hostname}:{u.port}" if u.port else hostname
 
-    pre_host, host, post_host = await read_host(reader)
+    reader_pipeline = Pipeline(reader)
+    pre_host, host = await read_host(reader_pipeline)
 
     if not host:
         await close_writer(writer)
@@ -40,11 +41,12 @@ async def proxy(reader, writer):
     )
 
     print(host.decode())
-    remote_writer.write(b"".join([pre_host, replace_host.encode(), b"\r\n", post_host]))
+    remote_writer.write(b"".join([pre_host, host, b"\r\n"]))
     await remote_writer.drain()
 
     await asyncio.gather(
-        send_file(reader, remote_writer), send_file(remote_reader, writer)
+        reader_pipeline.send_file(remote_writer),
+        Pipeline(remote_reader).send_file(writer),
     )
 
 
@@ -56,92 +58,60 @@ async def close_writer(writer):
     await writer.wait_closed()
 
 
-async def read_head(reader, writer, replace_host=None):
-    pipeline = Pipeline(reader, writer)
+async def read_host(pipeline_reader, replace_host=None):
     try:
-        while not reader.at_eof():
-            await pipeline.pipe_until(b"Host: ")
-            host = await pipeline.read_until(b"\r\n")
-            # host is None when reader is at_eof
-            if host:
-                # print(host[:-2])
-                if replace_host:
-                    host = f"{replace_host}\r\n".encode()
-                writer.write(host)
-                await writer.drain()
-    except ConnectionResetError:
-        print("Connection Reset Error")
-    finally:
-        await close_writer(writer)
-
-
-async def read_host(reader, replace_host=None):
-    pipeline = Pipeline(reader, None)
-    try:
-        if not reader.at_eof():
-            buffer = await pipeline.read_until(b"Host: ")
-            host = await pipeline.read_until(b"\r\n")
-            if host:
-                host = host[:-2]
-            return buffer, host, pipeline.chunk
+        buffer = await pipeline_reader.read_until(b"Host: ")
+        host = await pipeline_reader.read_until(b"\r\n")
+        if host:
+            host = host[:-2]
+        return buffer, host
     except ConnectionResetError:
         print("Connection Reset Error")
 
 
 class Pipeline:
-    def __init__(self, reader, writer):
+    def __init__(self, reader):
         self.reader = reader
-        self.writer = writer
         self.chunk = b""
-
-    async def pipe_until(self, until):
-        while not self.reader.at_eof():
-            try:
-                pos = self.chunk.index(until)
-            except ValueError:
-                # Drain chunk if possible until "until" is partially found
-                data_stream, self.chunk = partial_find(self.chunk, until)
-                if data_stream:
-                    self.writer.write(data_stream)
-                    await self.writer.drain()
-
-                data = await self.reader.read(BUFFER_SIZE)
-                self.chunk += data
-            else:
-                pos += len(until)
-                self.writer.write(self.chunk[:pos])
-                await self.writer.drain()
-                self.chunk = self.chunk[pos:]
-                return
 
     async def read_until(self, until):
         while not self.reader.at_eof():
             try:
                 pos = self.chunk.index(until)
             except ValueError:
-                data = await self.reader.read(BUFFER_SIZE)
+                try:
+                    data = await asyncio.wait_for(
+                        self.reader.read(BUFFER_SIZE), timeout=1.0
+                    )
+                except asyncio.TimeoutError:
+                    continue
                 self.chunk += data
             else:
                 pos += len(until)
                 line = self.chunk[:pos]
                 self.chunk = self.chunk[pos:]
                 return line
+        return b""
 
-
-async def send_file(reader, writer):
-    try:
-        while not reader.at_eof() and not writer.is_closing():
-            try:
-                data = await asyncio.wait_for(reader.read(BUFFER_SIZE), timeout=1.0)
-            except asyncio.TimeoutError:
-                pass
-            else:
-                writer.write(data)
+    async def send_file(self, writer):
+        try:
+            if self.chunk and not writer.is_closing():
+                writer.write(self.chunk)
                 await writer.drain()
-    except ConnectionResetError:
-        print("Connection Reset Error")
-    finally:
-        await close_writer(writer)
+            while not self.reader.at_eof() and not writer.is_closing():
+                try:
+                    data = await asyncio.wait_for(
+                        self.reader.read(BUFFER_SIZE), timeout=1.0
+                    )
+                except asyncio.TimeoutError:
+                    pass
+                else:
+                    writer.write(data)
+                    await writer.drain()
+        except ConnectionResetError:
+            print("Connection Reset Error")
+        finally:
+            await close_writer(writer)
 
 
 def partial_find(chunk, until):
