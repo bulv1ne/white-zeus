@@ -1,6 +1,6 @@
 import unittest
 
-from app import partial_find
+from white_zeus.utils import partial_find
 
 
 class TestApp(unittest.TestCase):
