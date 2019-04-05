@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import logging
 from urllib.parse import urlparse
@@ -7,7 +8,12 @@ BUFFER_SIZE = 1024
 
 
 async def main():
-    server = await asyncio.start_server(proxy, "127.0.0.1", 8080)
+    parser = argparse.ArgumentParser(description="White Zeus server")
+    parser.add_argument("--host", default="127.0.0.1", help="Default: 127.0.0.1")
+    parser.add_argument("--port", "-p", default=8080, type=int, help="Default: 8080")
+    args = parser.parse_args()
+
+    server = await asyncio.start_server(proxy, args.host, args.port)
 
     addr = server.sockets[0].getsockname()
     print(f"Serving on {addr}")
