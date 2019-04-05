@@ -38,17 +38,13 @@ async def proxy(reader, writer):
         send_file(remote_reader, writer),
     )
 
+
+async def close_writer(writer):
     if not writer.is_closing():
         if writer.can_write_eof():
             writer.write_eof()
         writer.close()
-
-    if not remote_writer.is_closing():
-        if remote_writer.can_write_eof():
-            remote_writer.write_eof()
-        remote_writer.close()
-
-    await asyncio.gather(writer.wait_closed(), writer.wait_closed())
+    await writer.wait_closed()
 
 
 async def read_head(reader, writer, replace_host=None):
@@ -56,14 +52,18 @@ async def read_head(reader, writer, replace_host=None):
     try:
         while not reader.at_eof():
             await pipeline.pipe_until(b"Host: ")
-            if replace_host:
-                # Empty the line
-                host = await pipeline.read_until(b"\r\n")
-                if host:
-                    writer.write(f"{replace_host}\r\n".encode())
-                    await writer.drain()
+            host = await pipeline.read_until(b"\r\n")
+            # host is None when reader is at_eof
+            if host:
+                # print(host[:-2])
+                if replace_host:
+                    host = f"{replace_host}\r\n".encode()
+                writer.write(host)
+                await writer.drain()
     except ConnectionResetError:
         print("Connection Reset Error")
+    finally:
+        await close_writer(writer)
 
 
 class Pipeline:
@@ -109,11 +109,17 @@ class Pipeline:
 async def send_file(reader, writer):
     try:
         while not reader.at_eof() and not writer.is_closing():
-            data = await reader.read(BUFFER_SIZE)
-            writer.write(data)
-            await writer.drain()
+            try:
+                data = await asyncio.wait_for(reader.read(BUFFER_SIZE), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+            else:
+                writer.write(data)
+                await writer.drain()
     except ConnectionResetError:
         print("Connection Reset Error")
+    finally:
+        await close_writer(writer)
 
 
 def partial_find(chunk, until):
@@ -145,4 +151,7 @@ def partial_find(chunk, until):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
