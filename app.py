@@ -29,13 +29,22 @@ async def proxy(reader, writer):
     ssl = u.scheme == "https"
     replace_host = f"{hostname}:{u.port}" if u.port else hostname
 
+    pre_host, host, post_host = await read_host(reader)
+
+    if not host:
+        await close_writer(writer)
+        return
+
     remote_reader, remote_writer = await asyncio.open_connection(
         hostname, port, ssl=ssl
     )
 
+    print(host.decode())
+    remote_writer.write(b"".join([pre_host, replace_host.encode(), b"\r\n", post_host]))
+    await remote_writer.drain()
+
     await asyncio.gather(
-        read_head(reader, remote_writer, replace_host=replace_host),
-        send_file(remote_reader, writer),
+        send_file(reader, remote_writer), send_file(remote_reader, writer)
     )
 
 
@@ -64,6 +73,19 @@ async def read_head(reader, writer, replace_host=None):
         print("Connection Reset Error")
     finally:
         await close_writer(writer)
+
+
+async def read_host(reader, replace_host=None):
+    pipeline = Pipeline(reader, None)
+    try:
+        if not reader.at_eof():
+            buffer = await pipeline.read_until(b"Host: ")
+            host = await pipeline.read_until(b"\r\n")
+            if host:
+                host = host[:-2]
+            return buffer, host, pipeline.chunk
+    except ConnectionResetError:
+        print("Connection Reset Error")
 
 
 class Pipeline:
